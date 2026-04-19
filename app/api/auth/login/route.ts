@@ -12,8 +12,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
     }
 
-    const db = getDb()
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email.toLowerCase().trim()) as {
+    const db = await getDb()
+    const result = await db.execute({
+      sql: 'SELECT * FROM users WHERE email = ?',
+      args: [email.toLowerCase().trim()],
+    })
+
+    const user = result.rows[0] as unknown as {
       id: number
       email: string
       password_hash: string
@@ -25,20 +30,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
-    const valid = await bcrypt.compare(password, user.password_hash)
+    const valid = await bcrypt.compare(password, user.password_hash as string)
     if (!valid) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
     const token = await signToken({
-      userId: user.id,
-      email: user.email,
-      role: user.role,
+      userId: Number(user.id),
+      email: String(user.email),
+      role: String(user.role) as 'admin' | 'annotator' | 'qa',
     })
 
     const response = NextResponse.json({
       user: {
-        id: user.id,
+        id: Number(user.id),
         email: user.email,
         role: user.role,
         quality_score: user.quality_score,
@@ -49,7 +54,7 @@ export async function POST(request: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 8, // 8 hours
+      maxAge: 60 * 60 * 8,
       path: '/',
     })
 

@@ -23,36 +23,43 @@ export async function POST(
     const { value: cleanRationale } = rationale ? sanitize(rationale) : { value: '' }
     const { value: cleanJustification } = sanitize(justification)
 
-    const db = getDb()
+    const db = await getDb()
 
-    // Check instance exists
-    const instance = db.prepare('SELECT id FROM task_instances WHERE id = ?').get(params.id)
-    if (!instance) {
+    const instanceCheck = await db.execute({
+      sql: 'SELECT id FROM task_instances WHERE id = ?',
+      args: [params.id],
+    })
+    if (!instanceCheck.rows[0]) {
       return NextResponse.json({ error: 'Instance not found' }, { status: 404 })
     }
 
-    // Mark existing annotations as overridden
-    db.prepare(
-      'UPDATE annotations SET status = ? WHERE task_instance_id = ? AND is_override = 0'
-    ).run('overridden', params.id)
+    await db.execute({
+      sql: 'UPDATE annotations SET status = ? WHERE task_instance_id = ? AND is_override = 0',
+      args: ['overridden', params.id],
+    })
 
-    // Create override annotation
-    const result = db.prepare(`
-      INSERT INTO annotations (task_instance_id, annotator_id, preference, preference_strength, rationale, is_override, override_justification, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      params.id,
-      auth.userId,
-      preference,
-      preference_strength || null,
-      cleanRationale || null,
-      1,
-      cleanJustification,
-      'submitted'
-    )
+    const result = await db.execute({
+      sql: `INSERT INTO annotations
+              (task_instance_id, annotator_id, preference, preference_strength,
+               rationale, is_override, override_justification, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        params.id,
+        auth.userId,
+        preference,
+        preference_strength || null,
+        cleanRationale || null,
+        1,
+        cleanJustification,
+        'submitted',
+      ],
+    })
 
-    const annotation = db.prepare('SELECT * FROM annotations WHERE id = ?').get(result.lastInsertRowid)
-    return NextResponse.json({ annotation }, { status: 201 })
+    const annotation = await db.execute({
+      sql: 'SELECT * FROM annotations WHERE id = ?',
+      args: [Number(result.lastInsertRowid)],
+    })
+    return NextResponse.json({ annotation: annotation.rows[0] }, { status: 201 })
   } catch (err) {
     console.error('Override error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

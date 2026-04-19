@@ -6,10 +6,10 @@ export default async function AnnotatorDashboard() {
   const auth = await getAuthUser()
   if (!auth) return null
 
-  const db = getDb()
+  const db = await getDb()
 
-  const instances = db.prepare(`
-    SELECT
+  const instancesResult = await db.execute({
+    sql: `SELECT
       i.*,
       t.name as task_name,
       t.task_type,
@@ -23,8 +23,10 @@ export default async function AnnotatorDashboard() {
       AND i.status = 'pending'
       AND a.id IS NULL
     GROUP BY i.id
-    ORDER BY i.created_at ASC
-  `).all(auth.userId) as Array<{
+    ORDER BY i.created_at ASC`,
+    args: [auth.userId],
+  })
+  const instances = instancesResult.rows as unknown as Array<{
     id: number
     task_name: string
     task_type: string
@@ -34,9 +36,11 @@ export default async function AnnotatorDashboard() {
     created_at: string
   }>
 
-  const completedCount = (db.prepare(
-    'SELECT COUNT(*) as c FROM annotations WHERE annotator_id = ?'
-  ).get(auth.userId) as { c: number }).c
+  const countResult = await db.execute({
+    sql: 'SELECT COUNT(*) as c FROM annotations WHERE annotator_id = ?',
+    args: [auth.userId],
+  })
+  const completedCount = Number(countResult.rows[0].c)
 
   return (
     <div className="p-8">

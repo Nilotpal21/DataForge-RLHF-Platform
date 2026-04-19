@@ -7,14 +7,17 @@ export default async function AnnotationPage({ params }: { params: { id: string 
   const auth = await getAuthUser()
   if (!auth) redirect('/login')
 
-  const db = getDb()
+  const db = await getDb()
 
-  const instance = db.prepare(`
-    SELECT i.*, t.name as task_name, t.task_type, t.rubric_config, t.parameters, t.status as task_status
+  const instanceResult = await db.execute({
+    sql: `SELECT i.*, t.name as task_name, t.task_type, t.rubric_config, t.parameters, t.status as task_status
     FROM task_instances i
     JOIN task_templates t ON t.id = i.template_id
-    WHERE i.id = ?
-  `).get(params.id) as {
+    WHERE i.id = ?`,
+    args: [params.id],
+  })
+
+  const instance = instanceResult.rows[0] as unknown as {
     id: number
     template_id: number
     task_name: string
@@ -33,11 +36,12 @@ export default async function AnnotationPage({ params }: { params: { id: string 
   }
 
   // Check if already annotated
-  const existing = db.prepare(
-    'SELECT id FROM annotations WHERE task_instance_id = ? AND annotator_id = ?'
-  ).get(params.id, auth.userId)
+  const existingResult = await db.execute({
+    sql: 'SELECT id FROM annotations WHERE task_instance_id = ? AND annotator_id = ?',
+    args: [params.id, auth.userId],
+  })
 
-  if (existing) {
+  if (existingResult.rows[0]) {
     redirect('/annotator?already_done=1')
   }
 

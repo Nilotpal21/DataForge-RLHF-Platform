@@ -3,14 +3,17 @@ import { getDb } from '@/lib/db'
 import QAReviewInterface from './QAReviewInterface'
 
 export default async function QAReviewPage({ params }: { params: { id: string } }) {
-  const db = getDb()
+  const db = await getDb()
 
-  const instance = db.prepare(`
-    SELECT i.*, t.name as task_name, t.task_type, t.rubric_config
+  const instanceResult = await db.execute({
+    sql: `SELECT i.*, t.name as task_name, t.task_type, t.rubric_config
     FROM task_instances i
     JOIN task_templates t ON t.id = i.template_id
-    WHERE i.id = ?
-  `).get(params.id) as {
+    WHERE i.id = ?`,
+    args: [params.id],
+  })
+
+  const instance = instanceResult.rows[0] as unknown as {
     id: number
     task_name: string
     task_type: string
@@ -21,13 +24,15 @@ export default async function QAReviewPage({ params }: { params: { id: string } 
 
   if (!instance) notFound()
 
-  const annotations = db.prepare(`
-    SELECT a.*, u.email as annotator_email
+  const annotationsResult = await db.execute({
+    sql: `SELECT a.*, u.email as annotator_email
     FROM annotations a
     JOIN users u ON u.id = a.annotator_id
     WHERE a.task_instance_id = ?
-    ORDER BY a.is_override DESC, a.created_at ASC
-  `).all(params.id) as Array<{
+    ORDER BY a.is_override DESC, a.created_at ASC`,
+    args: [params.id],
+  })
+  const annotations = annotationsResult.rows as unknown as Array<{
     id: number
     preference: string
     preference_strength: string | null

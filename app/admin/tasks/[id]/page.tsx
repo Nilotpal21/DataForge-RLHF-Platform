@@ -42,9 +42,14 @@ function formatDate(d: string) {
 }
 
 export default async function TaskDetailPage({ params }: { params: { id: string } }) {
-  const db = getDb()
+  const db = await getDb()
 
-  const task = db.prepare('SELECT * FROM task_templates WHERE id = ?').get(params.id) as {
+  const taskResult = await db.execute({
+    sql: 'SELECT * FROM task_templates WHERE id = ?',
+    args: [params.id],
+  })
+
+  const task = taskResult.rows[0] as unknown as {
     id: number
     name: string
     description: string
@@ -57,8 +62,8 @@ export default async function TaskDetailPage({ params }: { params: { id: string 
 
   if (!task) notFound()
 
-  const instances = db.prepare(`
-    SELECT
+  const instancesResult = await db.execute({
+    sql: `SELECT
       i.*,
       COUNT(a.id) as annotation_count,
       GROUP_CONCAT(a.preference) as preferences
@@ -66,17 +71,21 @@ export default async function TaskDetailPage({ params }: { params: { id: string 
     LEFT JOIN annotations a ON a.task_instance_id = i.id
     WHERE i.template_id = ?
     GROUP BY i.id
-    ORDER BY i.created_at DESC
-  `).all(params.id) as Instance[]
+    ORDER BY i.created_at DESC`,
+    args: [params.id],
+  })
+  const instances = instancesResult.rows as unknown as Instance[]
 
-  const annotations = db.prepare(`
-    SELECT a.*, u.email as annotator_email
+  const annotationsResult = await db.execute({
+    sql: `SELECT a.*, u.email as annotator_email
     FROM annotations a
     JOIN users u ON u.id = a.annotator_id
     JOIN task_instances i ON i.id = a.task_instance_id
     WHERE i.template_id = ?
-    ORDER BY a.created_at DESC
-  `).all(params.id) as Annotation[]
+    ORDER BY a.created_at DESC`,
+    args: [params.id],
+  })
+  const annotations = annotationsResult.rows as unknown as Annotation[]
 
   const parameters = task.parameters ? JSON.parse(task.parameters) : {}
   const rubric = task.rubric_config ? JSON.parse(task.rubric_config) : []

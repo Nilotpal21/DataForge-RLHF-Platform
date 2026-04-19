@@ -14,9 +14,9 @@ type ReviewItem = {
 }
 
 export default async function QADashboard() {
-  const db = getDb()
+  const db = await getDb()
 
-  const instances = db.prepare(`
+  const instancesResult = await db.execute(`
     SELECT
       i.*,
       t.name as task_name,
@@ -34,7 +34,8 @@ export default async function QADashboard() {
     GROUP BY i.id
     HAVING annotation_count > 0
     ORDER BY has_disagreement DESC, i.created_at DESC
-  `).all() as ReviewItem[]
+  `)
+  const instances = instancesResult.rows as unknown as ReviewItem[]
 
   const disagreements = instances.filter(i => i.has_disagreement === 1)
   const agreed = instances.filter(i => i.has_disagreement === 0)

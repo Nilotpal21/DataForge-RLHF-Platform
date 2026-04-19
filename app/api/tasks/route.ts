@@ -7,9 +7,8 @@ export async function GET() {
   const auth = await getAuthUser()
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = getDb()
-
-  const tasks = db.prepare(`
+  const db = await getDb()
+  const result = await db.execute(`
     SELECT
       t.*,
       COUNT(DISTINCT i.id) as instance_count,
@@ -19,9 +18,9 @@ export async function GET() {
     LEFT JOIN annotations a ON a.task_instance_id = i.id
     GROUP BY t.id
     ORDER BY t.created_at DESC
-  `).all()
+  `)
 
-  return NextResponse.json({ tasks })
+  return NextResponse.json({ tasks: result.rows })
 }
 
 export async function POST(request: NextRequest) {
@@ -41,39 +40,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Name and task_type are required' }, { status: 400 })
     }
 
-    const db = getDb()
+    const db = await getDb()
 
-    const result = db.prepare(`
-      INSERT INTO task_templates (name, description, task_type, rubric_config, parameters, status, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      cleanName,
-      cleanDesc,
-      task_type,
-      rubric_config ? JSON.stringify(rubric_config) : null,
-      parameters ? JSON.stringify(parameters) : null,
-      status || 'draft',
-      auth.userId
-    )
+    const taskResult = await db.execute({
+      sql: `INSERT INTO task_templates (name, description, task_type, rubric_config, parameters, status, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        cleanName,
+        cleanDesc,
+        task_type,
+        rubric_config ? JSON.stringify(rubric_config) : null,
+        parameters ? JSON.stringify(parameters) : null,
+        status || 'draft',
+        auth.userId,
+      ],
+    })
 
-    const taskId = result.lastInsertRowid
+    const taskId = Number(taskResult.lastInsertRowid)
 
-    // Insert instances if provided
     if (instances && Array.isArray(instances)) {
-      const instInsert = db.prepare(`
-        INSERT INTO task_instances (template_id, prompt, responses, status)
-        VALUES (?, ?, ?, ?)
-      `)
-
       for (const inst of instances) {
         const { value: cleanPrompt } = sanitize(inst.prompt || '')
         const cleanResponses = (inst.responses || []).map((r: string) => sanitize(r).value)
-        instInsert.run(taskId, cleanPrompt, JSON.stringify(cleanResponses), 'pending')
+        await db.execute({
+          sql: 'INSERT INTO task_instances (template_id, prompt, responses, status) VALUES (?, ?, ?, ?)',
+          args: [taskId, cleanPrompt, JSON.stringify(cleanResponses), 'pending'],
+        })
       }
     }
 
-    const task = db.prepare('SELECT * FROM task_templates WHERE id = ?').get(taskId)
-    return NextResponse.json({ task }, { status: 201 })
+    const task = await db.execute({ sql: 'SELECT * FROM task_templates WHERE id = ?', args: [taskId] })
+    return NextResponse.json({ task: task.rows[0] }, { status: 201 })
   } catch (err) {
     console.error('Create task error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

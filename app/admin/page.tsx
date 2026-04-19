@@ -26,9 +26,9 @@ function formatDate(dateStr: string) {
 }
 
 export default async function AdminDashboard() {
-  const db = getDb()
+  const db = await getDb()
 
-  const tasks = db.prepare(`
+  const tasksResult = await db.execute(`
     SELECT
       t.*,
       COUNT(DISTINCT i.id) as instance_count,
@@ -38,7 +38,8 @@ export default async function AdminDashboard() {
     LEFT JOIN annotations a ON a.task_instance_id = i.id
     GROUP BY t.id
     ORDER BY t.created_at DESC
-  `).all() as TaskRow[]
+  `)
+  const tasks = tasksResult.rows as unknown as TaskRow[]
 
   const totalAnnotations = tasks.reduce((sum, t) => sum + t.annotation_count, 0)
   const publishedTasks = tasks.filter(t => t.status === 'published').length

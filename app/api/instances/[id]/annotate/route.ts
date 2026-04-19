@@ -10,20 +10,20 @@ export async function GET(
   const auth = await getAuthUser()
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const db = getDb()
+  const db = await getDb()
+  const result = await db.execute({
+    sql: `SELECT i.*, t.name as task_name, t.task_type, t.rubric_config, t.parameters
+          FROM task_instances i
+          JOIN task_templates t ON t.id = i.template_id
+          WHERE i.id = ?`,
+    args: [params.id],
+  })
 
-  const instance = db.prepare(`
-    SELECT i.*, t.name as task_name, t.task_type, t.rubric_config, t.parameters
-    FROM task_instances i
-    JOIN task_templates t ON t.id = i.template_id
-    WHERE i.id = ?
-  `).get(params.id)
-
-  if (!instance) {
+  if (!result.rows[0]) {
     return NextResponse.json({ error: 'Instance not found' }, { status: 404 })
   }
 
-  return NextResponse.json({ instance })
+  return NextResponse.json({ instance: result.rows[0] })
 }
 
 export async function POST(
@@ -43,56 +43,63 @@ export async function POST(
 
     const { value: cleanRationale } = rationale ? sanitize(rationale) : { value: '' }
 
-    const db = getDb()
+    const db = await getDb()
 
-    // Check instance exists
-    const instance = db.prepare(`
-      SELECT i.*, t.parameters
-      FROM task_instances i
-      JOIN task_templates t ON t.id = i.template_id
-      WHERE i.id = ?
-    `).get(params.id) as { id: number; parameters: string } | undefined
+    const instanceResult = await db.execute({
+      sql: `SELECT i.*, t.parameters FROM task_instances i
+            JOIN task_templates t ON t.id = i.template_id WHERE i.id = ?`,
+      args: [params.id],
+    })
 
-    if (!instance) {
+    if (!instanceResult.rows[0]) {
       return NextResponse.json({ error: 'Instance not found' }, { status: 404 })
     }
 
-    // Check for duplicate annotation
-    const existing = db.prepare(
-      'SELECT id FROM annotations WHERE task_instance_id = ? AND annotator_id = ?'
-    ).get(params.id, auth.userId)
-
-    if (existing) {
+    const existing = await db.execute({
+      sql: 'SELECT id FROM annotations WHERE task_instance_id = ? AND annotator_id = ?',
+      args: [params.id, auth.userId],
+    })
+    if (existing.rows[0]) {
       return NextResponse.json({ error: 'Already annotated' }, { status: 409 })
     }
 
-    const result = db.prepare(`
-      INSERT INTO annotations (task_instance_id, annotator_id, preference, preference_strength, ratings, rationale, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      params.id,
-      auth.userId,
-      preference,
-      preference_strength || null,
-      ratings ? JSON.stringify(ratings) : null,
-      cleanRationale || null,
-      'submitted'
-    )
+    const result = await db.execute({
+      sql: `INSERT INTO annotations
+              (task_instance_id, annotator_id, preference, preference_strength, ratings, rationale, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        params.id,
+        auth.userId,
+        preference,
+        preference_strength || null,
+        ratings ? JSON.stringify(ratings) : null,
+        cleanRationale || null,
+        'submitted',
+      ],
+    })
 
-    // Check if we should update instance status based on required annotations
-    const params_config = instance.parameters ? JSON.parse(instance.parameters) : {}
-    const requiredAnnotations = params_config.annotationsPerTask || 1
+    const instance = instanceResult.rows[0] as unknown as { parameters: string }
+    const paramsConfig = instance.parameters ? JSON.parse(String(instance.parameters)) : {}
+    const requiredAnnotations = paramsConfig.annotationsPerTask || 1
 
-    const annotationCount = (db.prepare(
-      'SELECT COUNT(*) as c FROM annotations WHERE task_instance_id = ?'
-    ).get(params.id) as { c: number }).c
+    const countResult = await db.execute({
+      sql: 'SELECT COUNT(*) as c FROM annotations WHERE task_instance_id = ?',
+      args: [params.id],
+    })
+    const count = Number(countResult.rows[0].c)
 
-    if (annotationCount >= requiredAnnotations) {
-      db.prepare('UPDATE task_instances SET status = ? WHERE id = ?').run('completed', params.id)
+    if (count >= requiredAnnotations) {
+      await db.execute({
+        sql: 'UPDATE task_instances SET status = ? WHERE id = ?',
+        args: ['completed', params.id],
+      })
     }
 
-    const annotation = db.prepare('SELECT * FROM annotations WHERE id = ?').get(result.lastInsertRowid)
-    return NextResponse.json({ annotation }, { status: 201 })
+    const annotation = await db.execute({
+      sql: 'SELECT * FROM annotations WHERE id = ?',
+      args: [Number(result.lastInsertRowid)],
+    })
+    return NextResponse.json({ annotation: annotation.rows[0] }, { status: 201 })
   } catch (err) {
     console.error('Annotate error:', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

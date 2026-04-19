@@ -2,9 +2,9 @@ import { getDb } from '@/lib/db'
 import ExportPanel from '@/components/ExportPanel'
 
 export default async function ExportPage() {
-  const db = getDb()
+  const db = await getDb()
 
-  const tasks = db.prepare(`
+  const tasksResult = await db.execute(`
     SELECT
       t.*,
       COUNT(DISTINCT i.id) as instance_count,
@@ -14,7 +14,8 @@ export default async function ExportPage() {
     LEFT JOIN annotations a ON a.task_instance_id = i.id
     GROUP BY t.id
     ORDER BY t.created_at DESC
-  `).all() as Array<{
+  `)
+  const tasks = tasksResult.rows as unknown as Array<{
     id: number
     name: string
     task_type: string
