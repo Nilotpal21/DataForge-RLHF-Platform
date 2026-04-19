@@ -8,7 +8,7 @@ let _initPromise: Promise<void> | null = null
 function getClient(): Client {
   if (!_client) {
     _client = createClient({
-      url: process.env.TURSO_DATABASE_URL || 'file:local.db',
+      url: process.env.TURSO_DATABASE_URL || 'file:/tmp/local.db',
       authToken: process.env.TURSO_AUTH_TOKEN || undefined,
     })
   }
