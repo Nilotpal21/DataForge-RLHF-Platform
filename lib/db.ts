@@ -85,9 +85,9 @@ async function seedData(db: Client) {
   const hash = (pw: string) => bcrypt.hashSync(pw, 10)
 
   await db.batch([
-    { sql: 'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)', args: ['admin@dataforge.ai', hash('admin123'), 'admin'] },
-    { sql: 'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)', args: ['annotator@dataforge.ai', hash('annotator123'), 'annotator'] },
-    { sql: 'INSERT INTO users (email, password_hash, role) VALUES (?, ?, ?)', args: ['qa@dataforge.ai', hash('qa123'), 'qa'] },
+    { sql: 'INSERT OR IGNORE INTO users (email, password_hash, role) VALUES (?, ?, ?)', args: ['admin@dataforge.ai', hash('admin123'), 'admin'] },
+    { sql: 'INSERT OR IGNORE INTO users (email, password_hash, role) VALUES (?, ?, ?)', args: ['annotator@dataforge.ai', hash('annotator123'), 'annotator'] },
+    { sql: 'INSERT OR IGNORE INTO users (email, password_hash, role) VALUES (?, ?, ?)', args: ['qa@dataforge.ai', hash('qa123'), 'qa'] },
   ], 'write')
 
   const adminRes = await db.execute({ sql: 'SELECT id FROM users WHERE email = ?', args: ['admin@dataforge.ai'] })
